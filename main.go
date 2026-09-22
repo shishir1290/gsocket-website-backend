@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/shishir1290/gsocketio"
@@ -19,7 +21,14 @@ import (
 var webFS embed.FS
 
 func main() {
-	port := flag.Int("port", 8080, "Port to listen on")
+	defaultPort := 8080
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil {
+			defaultPort = p
+		}
+	}
+
+	port := flag.Int("port", defaultPort, "Port to listen on")
 	initialNodes := flag.Int("nodes", 8, "Initial number of simulated telemetry nodes")
 	autoStart := flag.Bool("autostart", true, "Auto-start simulation on boot")
 	flag.Parse()
