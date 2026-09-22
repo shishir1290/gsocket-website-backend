@@ -69,7 +69,6 @@ func main() {
 	srv.OnConnect("/", func(c gsocketio.Conn) error {
 		log.Printf("[+] Client connected: sid=%s", c.ID())
 		c.Join("lobby")
-		c.Join("dashboard")
 		collector.IncPacketsIn(1)
 		return nil
 	})
