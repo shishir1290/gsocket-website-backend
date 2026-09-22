@@ -115,6 +115,87 @@ func main() {
 		}
 	})
 
+	// Broadcast chat/message to everyone connected
+	srv.OnEvent("/", "chat", func(c gsocketio.Conn, args []json.RawMessage) {
+		collector.IncPacketsIn(1)
+		collector.IncPacketsOut(1)
+		var payload interface{}
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &payload)
+		}
+		log.Printf("[Broadcast] chat from %s: %v", c.ID(), payload)
+		srv.ToNamespace("/", "chat", map[string]interface{}{
+			"sender":    c.ID(),
+			"payload":   payload,
+			"timestamp": time.Now().Format("15:04:05"),
+		})
+	})
+
+	srv.OnEvent("/", "message", func(c gsocketio.Conn, args []json.RawMessage) {
+		collector.IncPacketsIn(1)
+		collector.IncPacketsOut(1)
+		var payload interface{}
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &payload)
+		}
+		log.Printf("[Broadcast] message from %s: %v", c.ID(), payload)
+		srv.ToNamespace("/", "message", map[string]interface{}{
+			"sender":    c.ID(),
+			"payload":   payload,
+			"timestamp": time.Now().Format("15:04:05"),
+		})
+	})
+
+	srv.OnEvent("/", "simulation:message", func(c gsocketio.Conn, args []json.RawMessage) {
+		collector.IncPacketsIn(1)
+		collector.IncPacketsOut(1)
+		var payload interface{}
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &payload)
+		}
+		log.Printf("[Broadcast] simulation:message from %s: %v", c.ID(), payload)
+		srv.ToNamespace("/", "simulation:message", map[string]interface{}{
+			"sender":    c.ID(),
+			"payload":   payload,
+			"timestamp": time.Now().Format("15:04:05"),
+		})
+	})
+
+	srv.OnEvent("/", "broadcast", func(c gsocketio.Conn, args []json.RawMessage) {
+		collector.IncPacketsIn(1)
+		collector.IncPacketsOut(1)
+		var payload interface{}
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &payload)
+		}
+		log.Printf("[Broadcast] broadcast from %s: %v", c.ID(), payload)
+		srv.ToNamespace("/", "broadcast", map[string]interface{}{
+			"sender":    c.ID(),
+			"payload":   payload,
+			"timestamp": time.Now().Format("15:04:05"),
+		})
+	})
+
+	srv.OnEvent("/", "join_room", func(c gsocketio.Conn, args []json.RawMessage) {
+		collector.IncPacketsIn(1)
+		var room string
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &room)
+		}
+		if room == "" {
+			room = "lobby"
+		}
+		c.Join(room)
+		log.Printf("[*] Client %s joined room %s", c.ID(), room)
+		srv.ToNamespace("/", "room_notification", map[string]interface{}{
+			"type":      "join",
+			"user":      c.ID(),
+			"room":      room,
+			"message":   fmt.Sprintf("Client %s joined room '%s'", c.ID(), room),
+			"timestamp": time.Now().Format("15:04:05"),
+		})
+	})
+
 	// Toggle simulation state
 	srv.OnEvent("/", "simulation:toggle", func(c gsocketio.Conn, args []json.RawMessage) {
 		collector.IncPacketsIn(1)

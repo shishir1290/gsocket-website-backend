@@ -192,6 +192,31 @@
   });
 
   // Receive critical alert
+    // Receive broadcast messages from live simulation
+  socket.on("chat", (data) => {
+    const text = typeof data.payload === "object" ? JSON.stringify(data.payload) : data.payload;
+    addLog("in", "💬 [Chat from " + (data.sender || "Peer") + "]: " + text);
+  });
+
+  socket.on("message", (data) => {
+    const text = typeof data.payload === "object" ? JSON.stringify(data.payload) : data.payload;
+    addLog("in", "✉️ [Message from " + (data.sender || "Peer") + "]: " + text);
+  });
+
+  socket.on("simulation:message", (data) => {
+    const text = typeof data.payload === "object" ? JSON.stringify(data.payload) : data.payload;
+    addLog("in", "📡 [Live Simulation from " + (data.sender || "Peer") + "]: " + text);
+  });
+
+  socket.on("broadcast", (data) => {
+    const text = typeof data.payload === "object" ? JSON.stringify(data.payload) : data.payload;
+    addLog("in", "📢 [Broadcast from " + (data.sender || "Peer") + "]: " + text);
+  });
+
+  socket.on("room_notification", (notif) => {
+    addLog("sys", "🚪 " + notif.message);
+  });
+
   socket.on("telemetry:alert", (alert) => {
     addLog("alert", `[ALERT] ${alert.nodeId}: ${alert.message} (${alert.metric}=${alert.value.toFixed(1)})`);
     alertBannerText.textContent = `[${alert.severity.toUpperCase()}] ${alert.message}`;
