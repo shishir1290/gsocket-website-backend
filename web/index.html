@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Telemetry & Simulation Platform — gsocketio</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Socket.IO v4 Client CDN -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+        </div>
+        <div>
+          <div class="brand-title">gsocketio <span class="badge badge-accent">Live Telemetry</span></div>
+          <div class="brand-subtitle">Pure Go Socket.IO v4 • Zero Dependencies • RFC 6455 Realtime</div>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-indicator">
+          <span class="status-dot" id="socketStatusDot"></span>
+          <span id="socketStatusText">Connecting...</span>
+        </div>
+        <div class="stat-pill" id="pingPill">
+          <span>Latency:</span> <strong id="pingValue">-- ms</strong>
+        </div>
+        <div class="stat-pill">
+          <span>Uptime:</span> <strong id="uptimeValue">0s</strong>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top KPI Grid -->
+    <section class="kpi-grid">
+      <div class="kpi-card cyan">
+        <div class="kpi-header">
+          <span class="kpi-title">Ingress Telemetry Rate</span>
+          <span class="kpi-icon">⚡</span>
+        </div>
+        <div class="kpi-value"><span id="pktsInSec">0</span> <span class="kpi-unit">pkts/s</span></div>
+        <div class="kpi-sub" id="totalPktsIn">Total In: 0 packets</div>
+      </div>
+
+      <div class="kpi-card emerald">
+        <div class="kpi-header">
+          <span class="kpi-title">Egress Broadcast Rate</span>
+          <span class="kpi-icon">📡</span>
+        </div>
+        <div class="kpi-value"><span id="pktsOutSec">0</span> <span class="kpi-unit">pkts/s</span></div>
+        <div class="kpi-sub" id="totalPktsOut">Total Out: 0 packets</div>
+      </div>
+
+      <div class="kpi-card purple">
+        <div class="kpi-header">
+          <span class="kpi-title">Active Fleet Nodes</span>
+          <span class="kpi-icon">🛸</span>
+        </div>
+        <div class="kpi-value"><span id="simNodesCount">0</span> <span class="kpi-unit">devices</span></div>
+        <div class="kpi-sub" id="activeClientsCount">Connected Sockets: 1</div>
+      </div>
+
+      <div class="kpi-card amber">
+        <div class="kpi-header">
+          <span class="kpi-title">Go Runtime Memory</span>
+          <span class="kpi-icon">💾</span>
+        </div>
+        <div class="kpi-value"><span id="heapAllocMB">0.0</span> <span class="kpi-unit">MB</span></div>
+        <div class="kpi-sub" id="goroutinesCount">Goroutines: 0 • GC Cycles: 0</div>
+      </div>
+    </section>
+
+    <!-- Simulation Control Deck -->
+    <section class="control-deck">
+      <div class="control-left">
+        <button id="toggleSimBtn" class="btn btn-primary">
+          <span class="btn-icon">⏸</span> <span id="toggleSimText">Pause Simulation</span>
+        </button>
+        <div class="control-group">
+          <label for="nodeScaleSelect">Fleet Scale:</label>
+          <select id="nodeScaleSelect" class="select-input">
+            <option value="4">4 Nodes</option>
+            <option value="8" selected>8 Nodes</option>
+            <option value="16">16 Nodes</option>
+            <option value="32">32 Nodes</option>
+            <option value="64">64 Nodes</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="intervalSelect">Telemetry Tick:</label>
+          <select id="intervalSelect" class="select-input">
+            <option value="100">100ms (High Freq)</option>
+            <option value="250">250ms (Fast)</option>
+            <option value="500" selected>500ms (Normal)</option>
+            <option value="1000">1000ms (Standard)</option>
+          </select>
+        </div>
+      </div>
+      <div class="control-right">
+        <button id="burstBtn" class="btn btn-secondary">
+          <span>🚀</span> Burst 500 Pkts
+        </button>
+        <button id="alertBtn" class="btn btn-danger">
+          <span>⚠️</span> Inject Anomaly
+        </button>
+      </div>
+    </section>
+
+    <!-- Main Content Split -->
+    <div class="main-split">
+      <!-- Nodes Grid -->
+      <div class="panel fleet-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>Simulated Telemetry Nodes</span>
+            <span class="tag" id="nodesCountTag">8 active</span>
+          </div>
+          <div class="legend">
+            <span class="legend-item"><span class="dot nominal"></span> Nominal</span>
+            <span class="legend-item"><span class="dot warning"></span> Warning</span>
+            <span class="legend-item"><span class="dot critical"></span> Critical</span>
+          </div>
+        </div>
+        <div class="nodes-grid" id="nodesContainer">
+          <!-- Dynamic node cards will be injected here -->
+        </div>
+      </div>
+
+      <!-- Realtime Packet Stream & Console -->
+      <div class="panel stream-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>Live Socket.IO Stream</span>
+            <span class="tag tag-cyan">42["telemetry:*"]</span>
+          </div>
+          <button id="clearLogsBtn" class="btn-sm">Clear</button>
+        </div>
+        <div class="terminal-logs" id="terminalLogs">
+          <div class="log-entry sys">
+            <span class="log-time">[00:00:00]</span> Initializing gsocketio Live Telemetry client connection...
+          </div>
+        </div>
+        <!-- Alert Banner (shown when critical event fires) -->
+        <div id="alertBanner" class="alert-banner hidden">
+          <span class="alert-icon">⚠️</span>
+          <span id="alertBannerText">Incident warning</span>
+          <button id="dismissAlertBtn" class="alert-close">&times;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
