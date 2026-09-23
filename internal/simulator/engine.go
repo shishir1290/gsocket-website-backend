@@ -12,6 +12,7 @@ import (
 // Engine manages the virtual devices simulation loop.
 type Engine struct {
 	mu           sync.RWMutex
+	rnd          *rand.Rand
 	active       bool
 	tickInterval time.Duration
 	nodes        []*telemetry.DeviceTelemetry
@@ -36,7 +37,10 @@ func NewEngine(cfg Config, collector *telemetry.Collector, onNodeUpdate func(*te
 		cfg.TickInterval = 500 * time.Millisecond
 	}
 
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	e := &Engine{
+		rnd:          rng,
 		tickInterval: cfg.TickInterval,
 		collector:    collector,
 		onNodeUpdate: onNodeUpdate,
@@ -52,12 +56,12 @@ func NewEngine(cfg Config, collector *telemetry.Collector, onNodeUpdate func(*te
 			NodeName:     fmt.Sprintf("Telemetry-%s-%02d", t, i),
 			NodeType:     t,
 			Status:       telemetry.StatusNominal,
-			BatteryPct:   85.0 + rand.Float64()*15.0,
-			TemperatureC: 38.0 + rand.Float64()*8.0,
-			CPULoadPct:   15.0 + rand.Float64()*25.0,
-			MemoryMB:     256.0 + rand.Float64()*512.0,
-			LatencyMs:    0.15 + rand.Float64()*0.4,
-			ThroughputKb: 50.0 + rand.Float64()*150.0,
+			BatteryPct:   85.0 + rng.Float64()*15.0,
+			TemperatureC: 36.0 + rng.Float64()*6.0,
+			CPULoadPct:   15.0 + rng.Float64()*20.0,
+			MemoryMB:     256.0 + rng.Float64()*512.0,
+			LatencyMs:    0.15 + rng.Float64()*0.4,
+			ThroughputKb: 50.0 + rng.Float64()*150.0,
 			PacketsSent:  0,
 			SeqNumber:    0,
 			Timestamp:    time.Now(),
@@ -156,12 +160,12 @@ func (e *Engine) ScaleNodes(count int) {
 			NodeName:     fmt.Sprintf("Telemetry-%s-%02d", t, i),
 			NodeType:     t,
 			Status:       telemetry.StatusNominal,
-			BatteryPct:   70.0 + rand.Float64()*30.0,
-			TemperatureC: 35.0 + rand.Float64()*12.0,
-			CPULoadPct:   10.0 + rand.Float64()*30.0,
-			MemoryMB:     256.0 + rand.Float64()*512.0,
-			LatencyMs:    0.2 + rand.Float64()*0.5,
-			ThroughputKb: 60.0 + rand.Float64()*180.0,
+			BatteryPct:   70.0 + e.rnd.Float64()*30.0,
+			TemperatureC: 35.0 + e.rnd.Float64()*10.0,
+			CPULoadPct:   10.0 + e.rnd.Float64()*25.0,
+			MemoryMB:     256.0 + e.rnd.Float64()*512.0,
+			LatencyMs:    0.2 + e.rnd.Float64()*0.5,
+			ThroughputKb: 60.0 + e.rnd.Float64()*180.0,
 			PacketsSent:  0,
 			SeqNumber:    0,
 			Timestamp:    time.Now(),
@@ -183,14 +187,18 @@ func (e *Engine) TriggerBurst(packetCount int) {
 
 		for i := 0; i < packetCount; i++ {
 			node := nodesCopy[i%len(nodesCopy)]
+			e.mu.Lock()
 			node.PacketsSent++
 			node.SeqNumber++
-			node.CPULoadPct = 85.0 + rand.Float64()*14.0
+			node.CPULoadPct = 85.0 + e.rnd.Float64()*14.0
 			node.Timestamp = time.Now()
+			updateCopy := *node
+			e.mu.Unlock()
 
-			e.collector.IncPacketsIn(1)
+			if e.collector != nil {
+				e.collector.IncPacketsIn(1)
+			}
 			if e.onNodeUpdate != nil {
-				updateCopy := *node
 				e.onNodeUpdate(&updateCopy)
 			}
 			time.Sleep(1 * time.Millisecond)
@@ -201,16 +209,15 @@ func (e *Engine) TriggerBurst(packetCount int) {
 // TriggerAlert forces an anomaly event on a random node.
 func (e *Engine) TriggerAlert() *telemetry.AlertEvent {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	if len(e.nodes) == 0 {
+		e.mu.Unlock()
 		return nil
 	}
 
-	target := e.nodes[rand.Intn(len(e.nodes))]
+	target := e.nodes[e.rnd.Intn(len(e.nodes))]
 	target.Status = telemetry.StatusCritical
-	target.TemperatureC = 88.5 + rand.Float64()*10.0
-	target.CPULoadPct = 99.2
+	target.TemperatureC = 88.5 + e.rnd.Float64()*6.0
+	target.CPULoadPct = 96.0 + e.rnd.Float64()*3.5
 
 	alert := &telemetry.AlertEvent{
 		ID:        fmt.Sprintf("alt-%d", time.Now().UnixNano()),
@@ -222,6 +229,7 @@ func (e *Engine) TriggerAlert() *telemetry.AlertEvent {
 		Threshold: 80.0,
 		Timestamp: time.Now(),
 	}
+	e.mu.Unlock()
 
 	if e.onAlert != nil {
 		e.onAlert(alert)
@@ -231,7 +239,11 @@ func (e *Engine) TriggerAlert() *telemetry.AlertEvent {
 
 // runLoop executes the heartbeat generation tick.
 func (e *Engine) runLoop() {
-	ticker := time.NewTicker(e.tickInterval)
+	e.mu.RLock()
+	interval := e.tickInterval
+	e.mu.RUnlock()
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -240,58 +252,69 @@ func (e *Engine) runLoop() {
 			return
 		case <-ticker.C:
 			e.mu.Lock()
-			currentInterval := e.tickInterval
-			e.mu.Unlock()
+			// Check if interval was changed dynamically
+			if e.tickInterval != interval {
+				interval = e.tickInterval
+				ticker.Reset(interval)
+			}
 
-			// Check if interval changed
-			ticker.Reset(currentInterval)
+			updates := make([]telemetry.DeviceTelemetry, len(e.nodes))
 
-			e.mu.Lock()
-			for _, node := range e.nodes {
-				// Random gentle drift
-				node.CPULoadPct += (rand.Float64() - 0.48) * 4.0
+			for i, node := range e.nodes {
+				// Mean-reverting random walk towards nominal steady-state
+				targetCPU := 28.0
+				targetTemp := 39.0
+
+				node.CPULoadPct += (targetCPU-node.CPULoadPct)*0.06 + (e.rnd.Float64()-0.5)*8.0
 				if node.CPULoadPct < 5.0 {
 					node.CPULoadPct = 5.0
-				} else if node.CPULoadPct > 98.0 {
-					node.CPULoadPct = 98.0
+				} else if node.CPULoadPct > 99.0 {
+					node.CPULoadPct = 99.0
 				}
 
-				node.TemperatureC += (rand.Float64() - 0.48) * 0.8
-				if node.TemperatureC < 30.0 {
-					node.TemperatureC = 30.0
-				} else if node.TemperatureC > 95.0 {
-					node.TemperatureC = 95.0
+				node.TemperatureC += (targetTemp-node.TemperatureC)*0.04 + (e.rnd.Float64()-0.5)*1.8
+				if node.TemperatureC < 25.0 {
+					node.TemperatureC = 25.0
+				} else if node.TemperatureC > 96.0 {
+					node.TemperatureC = 96.0
 				}
 
-				node.BatteryPct -= 0.02
-				if node.BatteryPct <= 0 {
-					node.BatteryPct = 100.0 // Simulated battery recharge/swap
+				// Gradual battery drain with auto-recharge/swap at low power
+				node.BatteryPct -= 0.015
+				if node.BatteryPct <= 5.0 {
+					node.BatteryPct = 100.0
 				}
 
-				node.LatencyMs = 0.12 + rand.Float64()*0.4
+				node.LatencyMs = 0.12 + e.rnd.Float64()*0.35
 				node.PacketsSent++
 				node.SeqNumber++
 				node.Timestamp = time.Now()
 
-				// Status calculation
-				if node.TemperatureC > 82.0 || node.CPULoadPct > 92.0 {
+				// Dynamic status calculation
+				if node.TemperatureC > 82.0 || node.CPULoadPct > 90.0 {
 					node.Status = telemetry.StatusCritical
-				} else if node.TemperatureC > 65.0 || node.CPULoadPct > 75.0 {
+				} else if node.TemperatureC > 65.0 || node.CPULoadPct > 70.0 {
 					node.Status = telemetry.StatusWarning
 				} else {
 					node.Status = telemetry.StatusNominal
 				}
 
-				// Count packet into telemetry
-				e.collector.IncPacketsIn(1)
-				e.collector.RecordLatency(node.LatencyMs)
-
-				if e.onNodeUpdate != nil {
-					nodeCopy := *node
-					e.onNodeUpdate(&nodeCopy)
-				}
+				updates[i] = *node
 			}
 			e.mu.Unlock()
+
+			// Dispatch callbacks and record telemetry metrics outside the lock
+			if e.collector != nil {
+				e.collector.IncPacketsIn(uint64(len(updates)))
+			}
+			if e.onNodeUpdate != nil {
+				for i := range updates {
+					if e.collector != nil {
+						e.collector.RecordLatency(updates[i].LatencyMs)
+					}
+					e.onNodeUpdate(&updates[i])
+				}
+			}
 		}
 	}
 }
